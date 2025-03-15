@@ -11,8 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the API code
 COPY api/ .
 
-# Expose the port Flask is running on
-EXPOSE 5000
+# Set the PORT environment variable to 8080
+ENV PORT 8080
+
+# Expose port 8080 (Cloud Run expects the app to listen on this port)
+EXPOSE 8080
 
 # Run the application
 CMD ["python", "main.py"]
