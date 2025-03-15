@@ -11,10 +11,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the API code
 COPY api/ .
 
+# Copy the email_service directory into the container
+COPY email_service/ email_service/
+
 # Set the PORT environment variable to 8080
 ENV PORT 8080
 
-# Expose port 8080 (Cloud Run expects the app to listen on this port)
+# Expose port 8080 (Cloud Run expects your app to listen on this port)
 EXPOSE 8080
 
 # Run the application
