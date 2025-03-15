@@ -1,2 +1,4 @@
 Flask==2.2.3
 Werkzeug==2.2.3
+requests==2.32.3
+google-cloud-firestore==2.7.0
