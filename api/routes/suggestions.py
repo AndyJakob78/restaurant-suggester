@@ -71,7 +71,7 @@ def get_suggestions_for_user(user_id):
     radius = 1500
     keyword = cuisine
     encoded_keyword = quote_plus(keyword)
-    api_key = "AIzaSyCvXUPVqtLK-sME0d10Z9m3oyye1wZQFu4"
+    api_key = os.environ.get("MAPS_API_KEY", "MISSING_KEY")
 
     google_url = (
         f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?"
