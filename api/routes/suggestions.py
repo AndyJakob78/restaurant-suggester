@@ -1,3 +1,4 @@
+import os
 from google.cloud import firestore
 import requests
 from flask import Blueprint, jsonify
@@ -9,7 +10,7 @@ suggestions = Blueprint('suggestions', __name__)
 @suggestions.route('/suggestions', methods=['GET'])
 def get_suggestions():
     # Use fixed default parameters: Tokyo, Italian restaurant
-    api_key = "AIzaSyCvXUPVqtLK-sME0d10Z9m3oyye1wZQFu4"
+    api_key = os.environ.get("MAPS_API_KEY", "MISSING_KEY")
     location = "35.6895,139.6917"  # Tokyo coordinates
     radius = 1500  # in meters
     keyword = "Italian restaurant"
