@@ -1,10 +1,19 @@
+import os
 import requests
 import smtplib
 from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Set your live Cloud Run service URL
 CLOUD_RUN_URL = "https://restaurant-suggester-726264366097.asia-northeast1.run.app"
+
+# Retrieve your sender email and app password from environment variables
+SENDER_EMAIL = os.getenv("SENDER_EMAIL")  # e.g., "kopser@gmail.com"
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")  # e.g., "your_app_password"
 
 def fetch_personalized_suggestions(user_id):
     """
@@ -35,15 +44,14 @@ def send_personalized_email(recipient_email, suggestions):
     # Configure the email message
     msg = MIMEText(html_content, 'html')
     msg['Subject'] = "Your Daily Personalized Restaurant Suggestions"
-    msg['From'] = "kopser@gmail.com"  # Replace with your sending email address
+    msg['From'] = SENDER_EMAIL  # Using sender email from environment
     msg['To'] = recipient_email
 
     # Send the email using Gmail's SMTP server
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
-            # Replace with your actual Gmail app password (no spaces)
-            server.login("kopser@gmail.com", "xkelkwiqxqemljlg")
+            server.login(SENDER_EMAIL, GMAIL_APP_PASSWORD)
             server.send_message(msg)
             print("Email sent successfully!")
     except Exception as e:
@@ -55,4 +63,4 @@ if __name__ == '__main__':
     suggestions = fetch_personalized_suggestions(user_id)
     print("Fetched personalized suggestions:", suggestions)
     # Replace the recipient email with your actual email address for testing
-    send_personalized_email("kopser@gmail.com", suggestions)
+    send_personalized_email(SENDER_EMAIL, suggestions)

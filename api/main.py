@@ -14,11 +14,18 @@ def create_app():
     app.register_blueprint(suggestions)
     app.register_blueprint(preferences_bp)
     app.register_blueprint(email_trigger)
+    
+    # Add an explicit health check endpoint for quick testing
+    @app.route('/health')
+    def health():
+        return "OK", 200
 
     return app
 
+# Expose the Flask application object for production servers (e.g., Gunicorn)
+app = create_app()
+
 if __name__ == '__main__':
-    app = create_app()
+    # When running locally, use the development server.
     port = int(os.environ.get("PORT", 8080))
-    # Turn off debug mode and disable the reloader for production
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
