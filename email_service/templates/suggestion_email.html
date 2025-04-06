@@ -8,10 +8,14 @@
   <h1>Today's Italian Restaurant Suggestions</h1>
   <ul>
     {% for suggestion in suggestions %}
-    <li>
+    <li style="margin-bottom: 20px;">
       <strong>{{ suggestion.name }}</strong><br>
       Address: {{ suggestion.address }}<br>
-      Rating: {{ suggestion.rating }}
+      Rating: {{ suggestion.rating }} ({{ suggestion.total_reviews }} reviews)<br>
+      {% if suggestion.photo_url %}
+        <img src="{{ suggestion.photo_url }}" alt="Main photo of {{ suggestion.name }}" style="max-width:300px;"><br>
+      {% endif %}
+      Latest Review: {{ suggestion.latest_review }}<br>
     </li>
     {% endfor %}
   </ul>
