@@ -8,7 +8,7 @@
   <h1>Today's Italian Restaurant Suggestions</h1>
   <ul>
     {% for suggestion in suggestions %}
-    <li style="margin-bottom: 20px;">
+    <li style="margin-bottom:20px;">
       <strong>{{ suggestion.name }}</strong><br>
       Address: {{ suggestion.address }}<br>
       Rating: {{ suggestion.rating }} ({{ suggestion.total_reviews }} reviews)<br>
