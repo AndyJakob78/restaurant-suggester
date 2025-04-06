@@ -23,7 +23,15 @@ def get_suggestions():
         f"location={location}&radius={radius}&keyword={encoded_keyword}&key={api_key}"
     )
     
+    # Debug: Print the constructed URL
+    print("DEBUG [default] google_url:", google_url, flush=True)
+    
     response = requests.get(google_url)
+    
+    # Debug: Print response status and text
+    print("DEBUG [default] response status:", response.status_code, flush=True)
+    print("DEBUG [default] response text:", response.text, flush=True)
+    
     if response.status_code == 200:
         data = response.json()
         results = data.get("results", [])
@@ -49,7 +57,11 @@ def get_suggestions():
                     f"https://maps.googleapis.com/maps/api/place/details/json?"
                     f"place_id={place_id}&fields=reviews&key={api_key}"
                 )
+                # Debug: Print details URL
+                print("DEBUG [default] details_url:", details_url, flush=True)
                 details_response = requests.get(details_url)
+                print("DEBUG [default] details response status:", details_response.status_code, flush=True)
+                print("DEBUG [default] details response text:", details_response.text, flush=True)
                 if details_response.status_code == 200:
                     details_data = details_response.json()
                     reviews = details_data.get("result", {}).get("reviews", [])
@@ -102,7 +114,15 @@ def get_suggestions_for_user(user_id):
         f"location={location}&radius={radius}&keyword={encoded_keyword}&key={api_key}"
     )
     
+    # Debug: Print the constructed URL for personalized suggestions
+    print("DEBUG [personalized] google_url:", google_url, flush=True)
+    
     response = requests.get(google_url)
+    
+    # Debug: Print response status and text
+    print("DEBUG [personalized] response status:", response.status_code, flush=True)
+    print("DEBUG [personalized] response text:", response.text, flush=True)
+    
     if response.status_code == 200:
         data = response.json()
         results = data.get("results", [])
@@ -126,7 +146,11 @@ def get_suggestions_for_user(user_id):
                     f"https://maps.googleapis.com/maps/api/place/details/json?"
                     f"place_id={place_id}&fields=reviews&key={api_key}"
                 )
+                # Debug: Print details URL for personalized suggestions
+                print("DEBUG [personalized] details_url:", details_url, flush=True)
                 details_response = requests.get(details_url)
+                print("DEBUG [personalized] details response status:", details_response.status_code, flush=True)
+                print("DEBUG [personalized] details response text:", details_response.text, flush=True)
                 if details_response.status_code == 200:
                     details_data = details_response.json()
                     reviews = details_data.get("result", {}).get("reviews", [])
@@ -144,3 +168,4 @@ def get_suggestions_for_user(user_id):
         return jsonify({"suggestions": suggestions_list}), 200
     else:
         return jsonify({"suggestions": []}), response.status_code
+
