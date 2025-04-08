@@ -11,15 +11,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the API code
 COPY api/ .
 
-# Copy the email_service directory into the container
+# Copy the ML code (inference.py and train_model.py)
+COPY ml/inference.py inference.py
+COPY ml/train_model.py train_model.py
+COPY deployment/suggestion_model.pkl .
+
+
+# Copy the email_service directory
 COPY email_service/ email_service/
 
 # Set the PORT environment variable to 8080
 ENV PORT 8080
 
-# Expose port 8080 (Cloud Run expects your app to listen on this port)
+# Expose port 8080
 EXPOSE 8080
 
 # Run the application
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "main:app"]
-

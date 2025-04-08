@@ -1,73 +1,51 @@
 import os
+import random
 from google.cloud import firestore
 import requests
 from flask import Blueprint, jsonify
 from urllib.parse import quote_plus
+from inference import load_model, get_prediction
 
 suggestions = Blueprint('suggestions', __name__)
+model = load_model()
 
-@suggestions.route('/suggestions', methods=['GET'])
-def get_suggestions():
-    # Generic default values for non-personalized search
-    cuisine = "Italian restaurant"
-    city = "Tokyo"
-    
-    # Use Tokyo coordinates as a global default
-    location = "35.6895,139.6917"
-    radius = 1500  # in meters
-    encoded_keyword = quote_plus(cuisine)
-    api_key = os.environ.get("MAPS_API_KEY", "MISSING_KEY")
-    
-    google_url = (
-        f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?"
-        f"location={location}&radius={radius}&keyword={encoded_keyword}&key={api_key}"
-    )
-    
-    # Debug: Print the constructed URL
-    print("DEBUG [default] google_url:", google_url, flush=True)
-    
-    response = requests.get(google_url)
-    
-    # Debug: Print response status and text
-    print("DEBUG [default] response status:", response.status_code, flush=True)
-    print("DEBUG [default] response text:", response.text, flush=True)
-    
-    if response.status_code == 200:
-        data = response.json()
-        results = data.get("results", [])
-        suggestions_list = []
-        for place in results:
-            name = place.get("name")
-            address = place.get("vicinity")
-            rating = place.get("rating", "N/A")
-            total_reviews = place.get("user_ratings_total", "N/A")
-            
-            # Get main photo URL if available
-            photo_url = None
-            if "photos" in place and place["photos"]:
-                photo_ref = place["photos"][0].get("photo_reference")
-                if photo_ref:
-                    photo_url = f"https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference={photo_ref}&key={api_key}"
-            
-            # Fetch latest review snippet using Place Details API
-            latest_review = "No reviews available"
-            place_id = place.get("place_id")
-            if place_id:
-                details_url = (
-                    f"https://maps.googleapis.com/maps/api/place/details/json?"
-                    f"place_id={place_id}&fields=reviews&key={api_key}"
-                )
-                # Debug: Print details URL
-                print("DEBUG [default] details_url:", details_url, flush=True)
-                details_response = requests.get(details_url)
-                print("DEBUG [default] details response status:", details_response.status_code, flush=True)
-                print("DEBUG [default] details response text:", details_response.text, flush=True)
-                if details_response.status_code == 200:
-                    details_data = details_response.json()
-                    reviews = details_data.get("result", {}).get("reviews", [])
-                    if reviews:
-                        latest_review = reviews[0].get("text", "No review text")
-            
+# 🔁 Shared logic for both endpoints
+def filter_and_format_results(results, api_key, prefix="default", user_id=None):
+    suggestions_list = []
+    for place in results:
+        name = place.get("name")
+        address = place.get("vicinity")
+        rating = place.get("rating", "0")
+        total_reviews = place.get("user_ratings_total", "N/A")
+        photo_url = None
+        if "photos" in place and place["photos"]:
+            photo_ref = place["photos"][0].get("photo_reference")
+            if photo_ref:
+                photo_url = f"https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference={photo_ref}&key={api_key}"
+
+        latest_review = "No reviews available"
+        place_id = place.get("place_id")
+        if place_id:
+            details_url = (
+                f"https://maps.googleapis.com/maps/api/place/details/json?"
+                f"place_id={place_id}&fields=reviews&key={api_key}"
+            )
+            print(f"DEBUG [{prefix}] details_url:", details_url, flush=True)
+            details_response = requests.get(details_url)
+            if details_response.status_code == 200:
+                details_data = details_response.json()
+                reviews = details_data.get("result", {}).get("reviews", [])
+                if reviews:
+                    latest_review = reviews[0].get("text", "No review text")
+
+        # Run ML inference
+        try:
+            score = get_prediction([float(rating), 1.0], model)
+        except Exception as e:
+            print("Prediction failed:", e)
+            score = 0
+
+        if score == 1:
             suggestions_list.append({
                 "name": name,
                 "address": address,
@@ -76,96 +54,48 @@ def get_suggestions():
                 "photo_url": photo_url,
                 "latest_review": latest_review
             })
-        return jsonify({"suggestions": suggestions_list})
-    else:
-        return jsonify({"suggestions": []}), response.status_code
+
+    # Shuffle suggestions to provide variety
+    random.shuffle(suggestions_list)
+    return suggestions_list
+
+@suggestions.route('/suggestions', methods=['GET'])
+def get_suggestions():
+    return jsonify({"error": "Please use the /suggestions/<user_id> endpoint."}), 400
 
 @suggestions.route('/suggestions/<user_id>', methods=['GET'])
 def get_suggestions_for_user(user_id):
     db = firestore.Client()
-
-    # Retrieve user preferences from Firestore
     doc_ref = db.collection('preferences').document(user_id)
     doc = doc_ref.get()
-    if doc.exists:
-        prefs = doc.to_dict()
-        # Use Firestore values (if not provided, they may be empty)
-        cuisine = prefs.get("cuisine", "").strip()
-        city = prefs.get("city", "").strip()
-    else:
-        # Fall back to defaults if no preferences are found
-        cuisine = "Italian restaurant"
-        city = "Tokyo"
-    
-    # Mapping cities to coordinates.
-    city_coords = {
-        "Tokyo": "35.6895,139.6917",
-        "New York": "40.7128,-74.0060",
-        "London": "51.5074,-0.1278"
-    }
-    # If the user's city isn't defined or recognized, fallback to Tokyo's coordinates.
-    location = city_coords.get(city, "35.6895,139.6917")
-    radius = 1500  # in meters
-    encoded_keyword = quote_plus(cuisine if cuisine else "Italian restaurant")
+    if not doc.exists:
+        return jsonify({"error": "No preferences found for user."}), 404
+
+    prefs = doc.to_dict()
+    cuisine = prefs.get("cuisine")
+    location = prefs.get("location")
+
+    if not cuisine or not location:
+        return jsonify({"error": "User preferences must include both 'cuisine' and 'location'."}), 400
+
+    cuisine = cuisine.strip()
+    location = location.strip()
+    radius = 1500
+    encoded_keyword = quote_plus(cuisine)
     api_key = os.environ.get("MAPS_API_KEY", "MISSING_KEY")
-    
+
     google_url = (
         f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?"
         f"location={location}&radius={radius}&keyword={encoded_keyword}&key={api_key}"
     )
-    
-    # Debug: Print the constructed URL for personalized suggestions
+
     print("DEBUG [personalized] google_url:", google_url, flush=True)
-    
     response = requests.get(google_url)
-    
-    # Debug: Print response status and text
-    print("DEBUG [personalized] response status:", response.status_code, flush=True)
-    print("DEBUG [personalized] response text:", response.text, flush=True)
-    
+
     if response.status_code == 200:
         data = response.json()
         results = data.get("results", [])
-        suggestions_list = []
-        for place in results:
-            name = place.get("name")
-            address = place.get("vicinity")
-            rating = place.get("rating", "N/A")
-            total_reviews = place.get("user_ratings_total", "N/A")
-            
-            photo_url = None
-            if "photos" in place and place["photos"]:
-                photo_ref = place["photos"][0].get("photo_reference")
-                if photo_ref:
-                    photo_url = f"https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference={photo_ref}&key={api_key}"
-            
-            latest_review = "No reviews available"
-            place_id = place.get("place_id")
-            if place_id:
-                details_url = (
-                    f"https://maps.googleapis.com/maps/api/place/details/json?"
-                    f"place_id={place_id}&fields=reviews&key={api_key}"
-                )
-                # Debug: Print details URL for personalized suggestions
-                print("DEBUG [personalized] details_url:", details_url, flush=True)
-                details_response = requests.get(details_url)
-                print("DEBUG [personalized] details response status:", details_response.status_code, flush=True)
-                print("DEBUG [personalized] details response text:", details_response.text, flush=True)
-                if details_response.status_code == 200:
-                    details_data = details_response.json()
-                    reviews = details_data.get("result", {}).get("reviews", [])
-                    if reviews:
-                        latest_review = reviews[0].get("text", "No review text")
-            
-            suggestions_list.append({
-                "name": name,
-                "address": address,
-                "rating": rating,
-                "total_reviews": total_reviews,
-                "photo_url": photo_url,
-                "latest_review": latest_review
-            })
-        return jsonify({"suggestions": suggestions_list}), 200
+        suggestions_list = filter_and_format_results(results, api_key, prefix="personalized", user_id=user_id)
+        return jsonify({"suggestions": suggestions_list})
     else:
         return jsonify({"suggestions": []}), response.status_code
-

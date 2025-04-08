@@ -5,4 +5,6 @@ google-cloud-firestore==2.7.0
 gunicorn
 python-dotenv
 jinja2
+scikit-learn
+
 
