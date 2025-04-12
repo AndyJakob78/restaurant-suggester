@@ -8,17 +8,17 @@ WORKDIR /app
 COPY api/requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the API code
+# Copy all code from `api/` into the container
 COPY api/ .
 
-# Copy the email_service directory into the container
-COPY email_service/ email_service/
+# Copy the trained ML model
+COPY deployment/suggestion_model.pkl .
 
 # Set the PORT environment variable to 8080
 ENV PORT 8080
 
-# Expose port 8080 (Cloud Run expects your app to listen on this port)
+# Expose port 8080
 EXPOSE 8080
 
-# Run the application
-CMD ["python", "main.py"]
+# Start the app with gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "main:app"]
