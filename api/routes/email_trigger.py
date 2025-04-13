@@ -1,5 +1,4 @@
-from flask import Blueprint, jsonify
-# Import the email sender functions from your email_sender module
+from flask import Blueprint, jsonify, request
 from email_service.email_sender import fetch_personalized_suggestions, send_personalized_email
 
 email_trigger = Blueprint('email_trigger', __name__)
@@ -8,11 +7,15 @@ email_trigger = Blueprint('email_trigger', __name__)
 def send_daily_email():
     """
     Trigger the sending of a daily personalized email.
-    This endpoint can be called by Cloud Scheduler.
+    You can call this via a browser, curl, or Cloud Scheduler.
+
+    Example:
+        curl "https://.../send_daily_email?user_id=alice123"
     """
-    user_id = "user123"  # For testing, use a fixed user ID (you can extend this later)
-    # Fetch suggestions using the personalized endpoint logic
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Missing required query parameter 'user_id'"}), 400
+
     suggestions = fetch_personalized_suggestions(user_id)
-    # Send the email (change the recipient as needed)
-    send_personalized_email("kopser@gmail.com", suggestions)
-    return jsonify({"message": "Daily email triggered and sent"}), 200
+    send_personalized_email("kopser@gmail.com", suggestions)  # Change recipient if needed
+    return jsonify({"message": f"Daily email triggered and sent for user {user_id}"}), 200

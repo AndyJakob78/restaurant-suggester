@@ -14,8 +14,8 @@ def fetch_review_and_details(place_id):
     fields = "reviews,priceLevel,generativeSummary"
     url = f"https://places.googleapis.com/v1/places/{place_id}?fields={fields}&key={api_key}"
     try:
-        r = requests.get(url)
         print(f"📍 [DEBUG] Fetching details for {place_id} with URL: {url}", flush=True)
+        r = requests.get(url)
         print(f"📍 [DEBUG] Status code: {r.status_code}", flush=True)
 
         if r.status_code == 200:
@@ -24,7 +24,17 @@ def fetch_review_and_details(place_id):
 
             reviews = data.get("reviews", [])
             gen_summary = data.get("generativeSummary", {})
-            summary = gen_summary.get("description", {}).get("text") or gen_summary.get("overview", {}).get("text", "")
+
+            if "description" in gen_summary and gen_summary["description"].get("text"):
+                summary = gen_summary["description"]["text"]
+                print(f"✅ [GEN_SUMMARY] Used 'description' for {place_id}", flush=True)
+            elif "overview" in gen_summary and gen_summary["overview"].get("text"):
+                summary = gen_summary["overview"]["text"]
+                print(f"✅ [GEN_SUMMARY] Used 'overview' for {place_id}", flush=True)
+            else:
+                summary = ""
+                print(f"⚠️ [GEN_SUMMARY] No description or overview available for {place_id}", flush=True)
+
             price_level = data.get("priceLevel", "N/A")
 
             if reviews:
