@@ -18,7 +18,11 @@ def fetch_review_and_details(place_id):
         if r.status_code == 200:
             data = r.json()
             reviews = data.get("reviews", [])
-            summary = data.get("generativeSummary", {}).get("text", "")
+
+            # ✅ Get generativeSummary.description or fallback to overview
+            gen_summary = data.get("generativeSummary", {})
+            summary = gen_summary.get("description", {}).get("text") or gen_summary.get("overview", {}).get("text", "")
+
             price_level = data.get("priceLevel", "N/A")
 
             if reviews:
@@ -168,7 +172,7 @@ def get_suggestions_for_user(user_id):
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": api_key,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos"
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.generativeSummary"
     }
 
     print("DEBUG [Text Search] payload:", query_payload, flush=True)
