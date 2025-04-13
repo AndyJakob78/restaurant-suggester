@@ -9,7 +9,37 @@ from ml.inference import load_model, get_prediction
 suggestions = Blueprint('suggestions', __name__)
 model = load_model()
 
-# 🔁 Shared logic for both endpoints
+def fetch_review_and_details(place_id):
+    api_key = os.environ.get("MAPS_API_KEY")
+    fields = "reviews,priceLevel,generativeSummary"
+    url = f"https://places.googleapis.com/v1/places/{place_id}?fields={fields}&key={api_key}"
+    try:
+        r = requests.get(url)
+        if r.status_code == 200:
+            data = r.json()
+            reviews = data.get("reviews", [])
+            summary = data.get("generativeSummary", {}).get("text", "")
+            price_level = data.get("priceLevel", "N/A")
+
+            if reviews:
+                filtered = sorted(
+                    [rev for rev in reviews if rev.get("rating", 0) >= 4 and rev.get("text")],
+                    key=lambda r: len(r["text"]),
+                    reverse=True
+                )
+                if filtered:
+                    return filtered[0]["text"], summary, price_level
+
+                for rev in reviews:
+                    if rev.get("text"):
+                        return rev["text"], summary, price_level
+
+            return "No review available", summary, price_level
+    except Exception as e:
+        print(f"⚠️ Review/details fetch failed for place_id {place_id}: {e}", flush=True)
+
+    return "No review available", "", "N/A"
+
 def filter_and_format_results(places, user_id=None):
     db = firestore.Client()
     sent_place_ids = set()
@@ -39,7 +69,6 @@ def filter_and_format_results(places, user_id=None):
                 if photo_ref:
                     photo_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=400&key={os.environ.get('MAPS_API_KEY')}"
 
-            # Run ML inference
             try:
                 score = get_prediction([float(rating), 1.0], model)
             except Exception as e:
@@ -47,6 +76,10 @@ def filter_and_format_results(places, user_id=None):
                 score = 0
 
             if score == 1:
+                review_text, summary, price_level = fetch_review_and_details(place_id)
+                maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+                save_link = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
+
                 result_list.append({
                     "name": name,
                     "address": address,
@@ -54,24 +87,24 @@ def filter_and_format_results(places, user_id=None):
                     "total_reviews": total_reviews,
                     "photo_url": photo_url,
                     "place_id": place_id,
-                    "latest_review": "Reviews not available with new API"
+                    "maps_url": maps_url,
+                    "save_link": save_link,
+                    "price_level": price_level,
+                    "generative_summary": summary,
+                    "latest_review": review_text
                 })
         return result_list
 
-    # First attempt: with deduplication
     suggestions_list = process_places(skip_history=False)
 
-    # Fallback: no deduplication if nothing found
     if not suggestions_list and user_id:
         print("⚠️ No new suggestions after filtering. Retrying without history filter...", flush=True)
         suggestions_list = process_places(skip_history=True)
 
-    # Shuffle suggestions
     random.seed(time.time())
     random.shuffle(suggestions_list)
     print("Final shuffled suggestions:", [repr(s["name"]) for s in suggestions_list], flush=True)
 
-    # Save top 3
     if user_id and suggestions_list:
         try:
             history_ref = db.collection("history").document(user_id)
@@ -105,6 +138,7 @@ def get_suggestions_for_user(user_id):
     prefs = doc.to_dict()
     cuisine = prefs.get("cuisine")
     location = prefs.get("location")
+    text_variants = prefs.get("query_variants")
 
     if not cuisine or not location:
         return jsonify({"error": "User preferences must include both 'cuisine' and 'location'."}), 400
@@ -112,10 +146,15 @@ def get_suggestions_for_user(user_id):
     cuisine = cuisine.strip().lower().replace(" ", "_") + "_restaurant"
     lat, lng = map(float, location.split(","))
 
+    if text_variants and isinstance(text_variants, list) and len(text_variants) > 0:
+        textQuery = random.choice(text_variants)
+    else:
+        textQuery = cuisine.replace("_", " ")
+
     api_key = os.environ.get("MAPS_API_KEY", "MISSING_KEY")
 
     query_payload = {
-        "textQuery": cuisine.replace("_", " "),
+        "textQuery": textQuery,
         "includedType": cuisine,
         "locationBias": {
             "circle": {
