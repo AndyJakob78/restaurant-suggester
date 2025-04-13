@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Set your live Cloud Run service URL
-CLOUD_RUN_URL = "https://restaurant-suggester-726264366097.asia-northeast1.run.app"
+# Use env var if set, fallback to hardcoded Cloud Run URL
+CLOUD_RUN_URL = os.getenv("CLOUD_RUN_URL") or "https://restaurant-suggester-726264366097.asia-northeast1.run.app"
 
 # Retrieve your sender email and app password from environment variables
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")  # e.g., "kopser@gmail.com"
