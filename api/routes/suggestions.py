@@ -15,14 +15,16 @@ def fetch_review_and_details(place_id):
     url = f"https://places.googleapis.com/v1/places/{place_id}?fields={fields}&key={api_key}"
     try:
         r = requests.get(url)
+        print(f"📍 [DEBUG] Fetching details for {place_id} with URL: {url}", flush=True)
+        print(f"📍 [DEBUG] Status code: {r.status_code}", flush=True)
+
         if r.status_code == 200:
             data = r.json()
-            reviews = data.get("reviews", [])
+            print(f"📍 [DEBUG] Place Details Response: {data}", flush=True)
 
-            # ✅ Get generativeSummary.description or fallback to overview
+            reviews = data.get("reviews", [])
             gen_summary = data.get("generativeSummary", {})
             summary = gen_summary.get("description", {}).get("text") or gen_summary.get("overview", {}).get("text", "")
-
             price_level = data.get("priceLevel", "N/A")
 
             if reviews:
@@ -76,7 +78,7 @@ def filter_and_format_results(places, user_id=None):
             try:
                 score = get_prediction([float(rating), 1.0], model)
             except Exception as e:
-                print("Prediction failed:", e)
+                print("Prediction failed:", e, flush=True)
                 score = 0
 
             if score == 1:
