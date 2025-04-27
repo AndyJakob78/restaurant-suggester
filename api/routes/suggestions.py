@@ -111,10 +111,10 @@ def filter_and_format_results(places, user_id=None):
     if user_id and suggestions_list:
         try:
             hist_ref = db.collection("history").document(user_id)
-            prev = hist_ref.get()
-            old_ids = prev.to_dict().get("place_ids", []) if prev.exists else []
-            new_ids = [s["place_id"] for s in suggestions_list[:3]]
-            keep = list({*old_ids, *new_ids})[:50]
+            prev     = hist_ref.get()
+            old_ids  = prev.to_dict().get("place_ids", []) if prev.exists else []
+            new_ids  = [s["place_id"] for s in suggestions_list[:3]]
+            keep     = list({*old_ids, *new_ids})[:50]
             hist_ref.set({"place_ids": keep, "last_sent": firestore.SERVER_TIMESTAMP})
         except Exception as e:
             print(f"🚨 history write failed: {e}", flush=True)
@@ -122,13 +122,13 @@ def filter_and_format_results(places, user_id=None):
     return suggestions_list
 
 # ——————————————————————————————————————————————————————————————————
-# Endpoints
+# Single-user Text Search endpoint
 # ——————————————————————————————————————————————————————————————————
 @suggestions.route('/suggestions', methods=['GET'])
 def no_user():
     return jsonify({"error": "Use /suggestions/<user_id>"}), 400
 
-@suggestions.route('/uggestions/<user_id>', methods=['GET'])
+@suggestions.route('/suggestions/<user_id>', methods=['GET'])
 def get_suggestions_for_user(user_id):
     pref_doc = db.collection('preferences').document(user_id).get()
     if not pref_doc.exists:
@@ -170,10 +170,13 @@ def get_suggestions_for_user(user_id):
     suggs  = filter_and_format_results(places, user_id=user_id)
     return jsonify({"suggestions": suggs})
 
+# ——————————————————————————————————————————————————————————————————
+# BATCH endpoint: loop preferences → trigger send_email CF → history
+# ——————————————————————————————————————————————————————————————————
 @send_all.route('/send_emails_to_all', methods=['POST'])
 def send_emails_to_all():
     """
-    Loop through all users and invoke send_email CF via query params
+    Loop through all users and invoke send_email Cloud Function via query params
     """
     try:
         errors   = []
@@ -193,7 +196,8 @@ def send_emails_to_all():
             call_url = f"{send_url.rstrip('/')}?user_id={uid}&email={email}"
             print(f"📧 Invoking send_email for {uid} → {call_url}", flush=True)
             try:
-                resp = requests.post(call_url, timeout=10)
+                # increased timeout to 55s so Cloud Run waits for the function to finish
+                resp = requests.post(call_url, timeout=55)
                 print(f"📡 {uid} response: {resp.status_code}", flush=True)
                 if resp.status_code not in (200, 202):
                     errors.append(f"{uid}: email status {resp.status_code}")
