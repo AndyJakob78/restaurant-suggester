@@ -31,11 +31,10 @@ def fetch_review_and_details(place_id):
 
         reviews     = data.get("reviews", [])
         gen_summary = data.get("generativeSummary", {})
-        summary     = gen_summary.get("description", {}).get("text",
-                       gen_summary.get("overview", {}).get("text", ""))
+        summary = gen_summary.get("description", {}).get("text",
+                   gen_summary.get("overview", {}).get("text", ""))
         price_level = data.get("priceLevel", "N/A")
 
-        # choose longest high-rating review
         filtered = [r for r in reviews if r.get("rating", 0) >= 4 and r.get("text")]
         filtered.sort(key=lambda r: len(r["text"]), reverse=True)
         if filtered:
@@ -66,10 +65,10 @@ def filter_and_format_results(places, user_id=None):
             if not pid or (not skip_history and pid in sent_ids):
                 continue
 
-            name    = p.get("displayName", {}).get("text")
-            address = p.get("formattedAddress")
-            rating  = p.get("rating", 0.0)
-            count   = p.get("userRatingCount", "N/A")
+            name          = p.get("displayName", {}).get("text")
+            address       = p.get("formattedAddress")
+            rating        = p.get("rating", 0.0)
+            reviews_count = p.get("userRatingCount", "N/A")
 
             photo_url = None
             if p.get("photos"):
@@ -88,39 +87,39 @@ def filter_and_format_results(places, user_id=None):
             if score == 1:
                 review, summary, price = fetch_review_and_details(pid)
                 results.append({
-                    "name": name,
-                    "address": address,
-                    "rating": rating,
-                    "total_reviews": count,
-                    "photo_url": photo_url,
-                    "place_id": pid,
-                    "maps_url": f"https://www.google.com/maps/place/?q=place_id:{pid}",
-                    "save_link": f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={pid}",
-                    "price_level": price,
+                    "name":               name,
+                    "address":            address,
+                    "rating":             rating,
+                    "total_reviews":      reviews_count,
+                    "photo_url":          photo_url,
+                    "place_id":           pid,
+                    "maps_url":           f"https://www.google.com/maps/place/?q=place_id:{pid}",
+                    "save_link":          f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={pid}",
+                    "price_level":        price,
                     "generative_summary": summary,
-                    "latest_review": review
+                    "latest_review":      review
                 })
         return results
 
-    suggs = build(False)
-    if not suggs and user_id:
-        suggs = build(True)
+    suggestions_list = build(False)
+    if not suggestions_list and user_id:
+        suggestions_list = build(True)
 
     random.seed(time.time())
-    random.shuffle(suggs)
+    random.shuffle(suggestions_list)
 
-    if user_id and suggs:
+    if user_id and suggestions_list:
         try:
             hist_ref = db.collection("history").document(user_id)
             prev     = hist_ref.get()
             old_ids  = prev.to_dict().get("place_ids", []) if prev.exists else []
-            new_ids  = [s["place_id"] for s in suggs[:3]]
+            new_ids  = [s["place_id"] for s in suggestions_list[:3]]
             keep     = list({*old_ids, *new_ids})[:50]
             hist_ref.set({"place_ids": keep, "last_sent": firestore.SERVER_TIMESTAMP})
         except Exception as e:
             print(f"🚨 history write failed: {e}", flush=True)
 
-    return suggs
+    return suggestions_list
 
 # ——————————————————————————————————————————————————————————————————
 # Endpoints
@@ -143,8 +142,8 @@ def get_suggestions_for_user(user_id):
         return jsonify({"error": "'cuisine' and 'location' required."}), 400
 
     cuisine_type = cuisine.strip().lower().replace(" ", "_") + "_restaurant"
-    lat, lng     = map(float, location.split(","))
-    query_text   = random.choice(variants) if variants else cuisine.replace("_", " ")
+    lat, lng      = map(float, location.split(","))
+    query_text    = random.choice(variants) if variants else cuisine.replace("_", " ")
 
     payload = {
         "textQuery": query_text,
@@ -174,7 +173,7 @@ def get_suggestions_for_user(user_id):
 @send_all.route('/send_emails_to_all', methods=['POST'])
 def send_emails_to_all():
     """
-    Loop through all users and invoke send_email Cloud Function
+    Loop through all users and invoke Cloud Function send_email via query params
     """
     try:
         errors   = []
@@ -182,17 +181,10 @@ def send_emails_to_all():
         if not send_url:
             raise RuntimeError("SEND_EMAIL_URL not set")
 
-        print(f"DEBUG Batch start, send_url={send_url}", flush=True)
+        print(f"🔥 Retrieved {len(list(db.collection('preferences').stream()))} preference docs", flush=True)
+        print(f"🚀 Batch start, send_url={send_url}", flush=True)
 
-        # diagnostic: fetch all preference docs
-        try:
-            prefs_snapshot = db.collection('preferences').get()
-            print(f"🔥 Retrieved {len(prefs_snapshot)} preference docs", flush=True)
-        except Exception as e:
-            print(f"❌ Firestore get failed: {e}", flush=True)
-            raise
-
-        for user_doc in prefs_snapshot:
+        for user_doc in db.collection('preferences').stream():
             uid   = user_doc.id
             prefs = user_doc.to_dict()
             email = prefs.get("email")
@@ -207,7 +199,7 @@ def send_emails_to_all():
                 print(f"📡 {uid} response: {resp.status_code}", flush=True)
                 if resp.status_code not in (200, 202):
                     errors.append(f"{uid}: email status {resp.status_code}")
-            except Exception as e:
+            except BaseException as e:
                 tb = traceback.format_exc()
                 print(f"❌ Exception for {uid}: {e}\n{tb}", flush=True)
                 errors.append(f"{uid}: exception {e}")
@@ -216,7 +208,7 @@ def send_emails_to_all():
         status = "partial_success" if errors else "success"
         return jsonify({"status": status, "errors": errors}), (207 if errors else 200)
 
-    except Exception:
+    except BaseException:
         tb = traceback.format_exc()
         print("🚨 Uncaught exception in send_emails_to_all:\n" + tb, flush=True)
         return jsonify({"error": "Internal error (see logs)"}), 500
