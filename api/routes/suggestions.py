@@ -2,23 +2,30 @@ import os
 import random
 import time
 import traceback
+import logging
 from google.cloud import firestore
 import requests
 from flask import Blueprint, jsonify
+
+# Import the feature fetcher you added in train_user_model.py
+from ml.training.train_user_model import fetch_place_features
+
+# Inference helpers
 from ml.inference import load_model, get_prediction
 
-# ——————————————————————————————————————————————————————————————————
-# Blueprints & clients
-# ——————————————————————————————————————————————————————————————————
+# ———— Logging setup ————
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("suggestion")
+logger.setLevel(logging.INFO)
+
+# ———— Blueprints & clients ————
 suggestions = Blueprint('suggestions', __name__)
 send_all    = Blueprint('send_all', __name__)
 
 db    = firestore.Client()
-model = load_model()
+model = load_model()  # Load your trained model at startup
 
-# ——————————————————————————————————————————————————————————————————
-# Helper: fetch review + summary + priceLevel
-# ——————————————————————————————————————————————————————————————————
+# ———— Helper: fetch review + summary + priceLevel ————
 def fetch_review_and_details(place_id):
     api_key = os.environ.get("MAPS_API_KEY")
     url = (
@@ -36,14 +43,13 @@ def fetch_review_and_details(place_id):
             gen_summary.get("description", {}).get("text")
             or gen_summary.get("overview", {}).get("text", "")
         )
-        price_level = data.get("priceLevel", "N/A")
+        price_level = data.get("priceLevel", "N/A" )
 
-        # pick the longest good review
-        filtered = [r for r in reviews if r.get("rating", 0) >= 4 and r.get("text")]
+        # pick the longest positive review
+        filtered = [r for r in reviews if r.get("rating",0) >= 4 and r.get("text")]
         filtered.sort(key=lambda r: len(r["text"]), reverse=True)
         if filtered:
             return filtered[0]["text"], summary, price_level
-        # fallback
         for r in reviews:
             if r.get("text"):
                 return r["text"], summary, price_level
@@ -53,9 +59,7 @@ def fetch_review_and_details(place_id):
 
     return "No review available", summary, price_level
 
-# ——————————————————————————————————————————————————————————————————
-# Helper: filter, score, shuffle & update history
-# ——————————————————————————————————————————————————————————————————
+# ———— Helper: filter, score, shuffle & update history ————
 def filter_and_format_results(places, user_id=None):
     sent_ids = set()
     if user_id:
@@ -75,7 +79,6 @@ def filter_and_format_results(places, user_id=None):
             rating   = p.get("rating", 0.0)
             count    = p.get("userRatingCount", "N/A")
 
-            # photo URL
             photo_url = None
             photos = p.get("photos")
             if photos:
@@ -86,38 +89,49 @@ def filter_and_format_results(places, user_id=None):
                         f"?maxHeightPx=400&key={os.environ.get('MAPS_API_KEY')}"
                     )
 
-            # ML score
+            # --- NEW: fetch the real features you trained on ---
+            feats = fetch_place_features(pid)
+            if feats is None:
+                # skip places that failed to fetch features
+                logger.warning(f"Skipping {pid}: feature fetch failed")
+                continue
+
+            # --- Get prediction (0 or 1) from your model ---
             try:
-                score = get_prediction([float(rating), 1.0], model)
-            except:
+                score = get_prediction(feats, model)
+            except Exception as e:
+                logger.warning(f"Prediction failed for {pid}: {e}")
                 score = 0
 
+            # Only include if predicted "click" (score == 1)
             if score == 1:
                 review, summary, price = fetch_review_and_details(pid)
                 out.append({
-                    "name":              name,
-                    "address":           address,
-                    "rating":            rating,
-                    "total_reviews":     count,
-                    "photo_url":         photo_url,
-                    "place_id":          pid,
-                    "maps_url":          f"https://www.google.com/maps/place/?q=place_id:{pid}",
-                    "save_link":         f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={pid}",
-                    "price_level":       price,
+                    "name":               name,
+                    "address":            address,
+                    "rating":             rating,
+                    "total_reviews":      count,
+                    "photo_url":          photo_url,
+                    "place_id":           pid,
+                    "maps_url":           f"https://www.google.com/maps/place/?q=place_id:{pid}",
+                    "save_link":          f"https://www.google.com/maps/search/?api=1&query_place_id={pid}",
+                    "price_level":        price,
                     "generative_summary": summary,
-                    "latest_review":     review
+                    "latest_review":      review
                 })
         return out
 
-    # first try skipping already‐sent
+    # generate suggestions, skipping history first
     suggs = build(False)
-    # if none left, allow repeats
+    # if no new suggestions, allow repeats
     if not suggs and user_id:
         suggs = build(True)
 
+    logger.debug("Before shuffle: %s", [s["place_id"] for s in suggs])
     random.shuffle(suggs)
+    logger.debug("After  shuffle: %s", [s["place_id"] for s in suggs])
 
-    # record top‐3 in history
+    # record top-3 in history
     if user_id and suggs:
         try:
             ref = db.collection("history").document(user_id)
@@ -131,9 +145,7 @@ def filter_and_format_results(places, user_id=None):
 
     return suggs
 
-# ——————————————————————————————————————————————————————————————————
-# Single‐user endpoint
-# ——————————————————————————————————————————————————————————————————
+# ———— Single-user endpoint ————
 @suggestions.route('/suggestions', methods=['GET'])
 def no_user():
     return jsonify({"error": "Use /suggestions/<user_id>"}), 400
@@ -157,28 +169,49 @@ def get_suggestions_for_user(user_id):
     text_query   = random.choice(variants) if variants else cuisine
 
     payload = {
-        "textQuery": text_query,
+        "textQuery":    text_query,
         "includedType": cuisine_type,
         "locationBias": {"circle": {"center": {"latitude": lat, "longitude": lng}, "radius": 2500.0}},
         "pageSize": 20
     }
     headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": os.environ.get("MAPS_API_KEY", ""),
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.generativeSummary"
+        "Content-Type":    "application/json",
+        "X-Goog-Api-Key":  os.environ.get("MAPS_API_KEY", ""),
+        "X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.photos,places.generativeSummary"
     }
 
-    r = requests.post("https://places.googleapis.com/v1/places:searchText", headers=headers, json=payload, timeout=10)
-    if r.status_code != 200:
-        print(f"❌ Text Search failed ({r.status_code}): {r.text}", flush=True)
-        return jsonify({"suggestions": []}), r.status_code
+    # fetch up to 3 pages for more variety
+    all_places = []
+    next_token = None
+    for _ in range(30):
+        req_payload = payload.copy()
+        if next_token:
+            time.sleep(2)
+            req_payload["pageToken"] = next_token
 
-    places = r.json().get("places", [])
+        resp = requests.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers=headers,
+            json=req_payload,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            print(f"❌ Text Search failed ({resp.status_code}): {resp.text}", flush=True)
+            return jsonify({"suggestions": []}), resp.status_code
+
+        data = resp.json()
+        all_places.extend(data.get("places", []))
+        next_token = data.get("nextPageToken")
+        if not next_token:
+            break
+
+    # dedupe by place_id
+    unique = {p.get("id"): p for p in all_places if p.get("id")}
+    places = list(unique.values())
+
     return jsonify({"suggestions": filter_and_format_results(places, user_id=user_id)})
 
-# ——————————————————————————————————————————————————————————————————
-# BATCH endpoint
-# ——————————————————————————————————————————————————————————————————
+# ———— BATCH endpoint ————
 @send_all.route('/send_emails_to_all', methods=['POST'])
 def send_emails_to_all():
     try:
@@ -189,19 +222,26 @@ def send_emails_to_all():
 
         print(f"🔄 Batch start → {send_url}", flush=True)
         for doc in db.collection('preferences').stream():
-            uid = doc.id
+            uid   = doc.id
             email = doc.to_dict().get("email")
             if not email:
                 errors.append(f"{uid}: no email")
                 continue
 
-            url = f"{send_url.rstrip('/')}?user_id={uid}&email={email}"
-            print(f"📧 {uid} → {url}", flush=True)
+            resp = requests.get(f"https://{os.getenv('CLOUD_RUN_SERVICE_URL')}/api/suggestions/{uid}")
+            if resp.status_code != 200:
+                errors.append(f"{uid}: suggestions fetch failed {resp.status_code}")
+                continue
+            suggs = resp.json().get('suggestions', [])
+
+            params  = {'user_id': uid, 'email': email}
+            payload = {'suggestions': suggs}
+            print(f"📧 {uid} → sending email", flush=True)
             try:
-                resp = requests.get(url, timeout=15)
-                print(f"⇢ {uid} status {resp.status_code}", flush=True)
-                if resp.status_code not in (200,202):
-                    errors.append(f"{uid}: status {resp.status_code}")
+                r2 = requests.post(send_url, params=params, json=payload, timeout=15)
+                print(f"⇢ {uid} email status {r2.status_code}", flush=True)
+                if r2.status_code not in (200,202):
+                    errors.append(f"{uid}: email status {r2.status_code}")
             except Exception as e:
                 tb = traceback.format_exc()
                 print(f"❌ {uid} exception:\n{tb}", flush=True)
