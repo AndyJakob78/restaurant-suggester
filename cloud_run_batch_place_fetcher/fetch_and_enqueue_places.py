@@ -124,7 +124,7 @@ def search_places_for_user(user):
             "locationBias": {
                 "circle": {
                     "center": {"latitude": lat, "longitude": lng},
-                    "radius": 2500.0  # 2.5km
+                    "radius": 5000.0  # 5.0km
                 }
             },
             "pageSize": 50
