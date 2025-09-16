@@ -2,20 +2,69 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Daily Italian Restaurant Suggestions</title>
+  <title>Daily Restaurant Suggestions</title>
 </head>
 <body>
-  <h1>Today's Italian Restaurant Suggestions</h1>
+  <h1>Today's Restaurant Suggestions</h1>
   <ul>
     {% for suggestion in suggestions %}
-    <li style="margin-bottom:20px;">
-      <strong>{{ suggestion.name }}</strong><br>
+    <li style="margin-bottom: 30px;">
+      <strong>
+        <a href="https://www.google.com/maps/search/?api=1&query_place_id={{ suggestion.place_id }}"
+           target="_blank" rel="noopener noreferrer">
+          {{ suggestion.name }}
+        </a>
+      </strong><br>
+
       Address: {{ suggestion.address }}<br>
       Rating: {{ suggestion.rating }} ({{ suggestion.total_reviews }} reviews)<br>
-      {% if suggestion.photo_url %}
-        <img src="{{ suggestion.photo_url }}" alt="Main photo of {{ suggestion.name }}" style="max-width:300px;"><br>
+
+      {% if suggestion.price_level %}
+        Price Range: {{ suggestion.price_level }}<br>
       {% endif %}
+
+      {# Generative summary from analysis #}
+      {% if suggestion.generative_summary %}
+        <em>{{ suggestion.generative_summary }}</em><br>
+      {% else %}
+        <em style="color: gray;">No summary available yet — check the review below!</em><br>
+      {% endif %}
+
+      {# Pros & Cons #}
+      {% if suggestion.pros_cons %}
+        <p><strong>Pros &amp; Cons:</strong><br>
+           {{ suggestion.pros_cons | replace("\n", "<br>") | safe }}
+        </p>
+      {% endif %}
+
+      {# Tags #}
+      {% if suggestion.tags %}
+        <p><strong>Tags:</strong> {{ suggestion.tags | join(", ") }}</p>
+      {% endif %}
+
+      {# Ambience #}
+      {% if suggestion.ambience %}
+        <p><strong>Ambience:</strong> {{ suggestion.ambience }}</p>
+      {% endif %}
+
+      {# Buzz #}
+      {% if suggestion.buzz %}
+        <p><strong>Buzz:</strong> {{ suggestion.buzz }}</p>
+      {% endif %}
+
+      {% if suggestion.photo_url %}
+        <img src="{{ suggestion.photo_url }}"
+             alt="Photo of {{ suggestion.name }}"
+             style="max-width:300px;"><br>
+      {% endif %}
+
       Latest Review: {{ suggestion.latest_review }}<br>
+
+      {# Feedback link: records user click #}
+      <a href="{{ feedback_url }}?user_id={{ user_id }}&place_id={{ suggestion.place_id }}&action=click"
+         target="_blank" rel="noopener noreferrer">
+        ➕ Save this place
+      </a>
     </li>
     {% endfor %}
   </ul>
